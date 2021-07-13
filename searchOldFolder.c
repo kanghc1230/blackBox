@@ -5,9 +5,8 @@
 #include <errno.h> 
 
 #define MAX_LIST 50 
-
 // 현재경로를 가리키는 path
-// 
+
 const char *path = "/home/pi/blackbox/"; 
 
 /* ".", ".." 은 빼고 나머지 파일명 출력하는 필터 함수 */
