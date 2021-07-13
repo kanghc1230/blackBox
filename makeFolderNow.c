@@ -32,7 +32,7 @@ int main(void)
     struct dirent *dir_entry;
     getTime();
 
-    sprintf(dirname, "/home/pi/blackbox/%s",buf);
+    sprintf(dirname, "/home/pi/blackBox/%s",buf);
     printf("dirname=%s",dirname);
     mkdir(dirname, 0755);
     return 0;
