@@ -16,9 +16,9 @@ const char *MMOUNT = "/proc/mounts";
 
 struct f_size
 {
-    long blocks;
-    long avail;
-    float ratio;
+    long blocks; // 전체용량
+    long avail; //남은용량
+    float ratio; //남은용량비율
 };
 
 typedef struct _mountinfo 
@@ -30,7 +30,10 @@ typedef struct _mountinfo
     struct f_size size;        // 파일 시스템의 총크기/사용율 
 } MOUNTP;
 
+
+
 MOUNTP *dfopen()
+
 {
     MOUNTP *MP;
 
@@ -48,6 +51,7 @@ MOUNTP *dfget(MOUNTP *MP)
 {
     char buf[256];
     char *bname;
+
     char null[16];
     struct statfs lstatfs;
     struct stat lstat; 
@@ -93,16 +97,14 @@ int main()
         return 1;
     }
 
-    // while(1)
-    // {
-       while(dfget(MP))
-       {
-            printf("%-14s%-20s%10lu%10lu %5f\n", MP->mountdir, MP->devname, 
+
+    while(dfget(MP))
+    {
+        printf("%-14s%-20s%10lu%10lu %5f\n", MP->mountdir, MP->devname, 
                                 MP->size.blocks,
                                 MP->size.avail,
                                 MP->size.ratio);
-       }
-        printf("=========================\n\n");
-        sleep(1);
+    }
+    sleep(1);
     // }
 }
