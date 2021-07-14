@@ -11,8 +11,10 @@
 #include <dirent.h>
 #include <sys/stat.h> //mkdir
 
-#include <sys/vfs.h>  //CheckCVolume
+#include <sys/vfs.h>  //getRatio().. statfs
 #include <sys/types.h>
+
+#include <pthread.h> //thread
 
 using namespace cv;
 using namespace std;
@@ -21,17 +23,17 @@ using namespace std;
 #define FOLDERNAME_TIME 1
 #define LOG_TIME 2
 
-// 출력되는 파일이름 설정방법
-// define OUTPUT_VIDEO_NAME "test.avi" //test.avi
-// 202107 121433.avi
 // 파일 실행되는 창 이름
 #define VIDEO_WINDOW_NAME "Recode"
 
 // getTime buffer
 char BUF[30];
-
+// getTime fileName
+char filename_BUF[30];
 // 폴더 이름 버퍼
 char dirname[30];
+// 삭제된 폴더이름 long
+long delFolderName;
 
 // 시간 잡아와서 포맷변환
 void getTime(int return_Type) //0file 1 folder 2log
@@ -44,7 +46,7 @@ void getTime(int return_Type) //0file 1 folder 2log
     tm = localtime(&UTCtime);
     // 3rd : %a : 간단한 요일, %m :월, %e : 일, %H : 24시, %M :분, %S :초, %Y :년
     if (return_Type == FILENAME_TIME)                       //.avi
-        strftime(BUF, sizeof(BUF), "%Y%m%d%H%M%S.avi", tm); // 사용자 정의 문자열 지정
+        strftime(filename_BUF, sizeof(filename_BUF), "%Y%m%d%H%M%S.avi", tm); // 사용자 정의 문자열 지정
     else if (return_Type == FOLDERNAME_TIME)                //foldername
         strftime(BUF, sizeof(BUF), "%Y%m%d%H", tm);
     else if (return_Type == LOG_TIME) // [xx:xx] ~.log
@@ -121,7 +123,6 @@ static int filter(const struct dirent *dirent)
     for (int i=0; i < strlen(dirent->d_name); i++)
         if ( isdigit(dirent->d_name[i])==0 )
             break;
-
     return 1;
 }
 // 오래된 폴더삭제함수
@@ -149,13 +150,19 @@ void deleteFolder(void)
     sprintf(delete_path, "/home/pi/blackBox/%ld",min);
     //강제삭제함수실행(파일이 있는 디렉토리)
     i = rmdirs(delete_path,1);
-
+    if (i) //삭제 에러가 반환시
+    {
+        printf("파일삭제 실패\n");
+        delFolderName = 0;
+    }
     //할당해제 //네임리스트 구조체는 힙
     for(i = 0; i < count; i++) 
     { 
         free(namelist[i]); 
     } 
     free(namelist); 
+
+    delFolderName = min; //long형으로 전역변수에 가장작은값폴더 min반환
 }
 
 // 새로운 폴더생성함수
@@ -168,12 +175,82 @@ void makeFolderNow(void)
     mkdir(dirname, 0755);
 }
 
+
+
+// 쓰레드 처리부분 //
+// 로그쓰레드함수
+void* log_t_fuc(void *data)
+{
+    int *input = (int *)data;
+    char buff[100]; // 파일에 쓸 버퍼
+    int fd; // 파일열기
+    int WRByte;
+    fd = open("/home/pi/blackBox/blackBoxlog.log", O_WRONLY | O_CREAT | O_APPEND, 0644); 
+    getTime(LOG_TIME); //BUF에 [시간]
+    if(*input == 1)
+    {   
+        sprintf(buff, "\n\n%s blackBox log write on... \n", BUF);
+    }
+    if(*input == 2)
+    {
+        sprintf(buff, "%s ERROR! Unable to open camera. \n", BUF);
+    }
+    if(*input == 3)
+    {
+        sprintf(buff, "%s %s 폴더가 생성되었습니다.\n", BUF, dirname);
+    }
+    if(*input == 4)
+    {
+        sprintf(buff, "%s %ld 폴더를 삭제합니다.\n", BUF, delFolderName);
+    }
+    if(*input == 5)
+    {
+        sprintf(buff, "%s ERROR! %ld 폴더 삭제를 시도하였으나 실패하였습니다.\n", BUF, delFolderName);
+    }
+    if(*input == 6) 
+    {
+        sprintf(buff, "%s", BUF); //로그시간 먼저 기입
+        WRByte = write(fd, buff, strlen(buff));
+
+        getTime(FILENAME_TIME); // 파일명.avi 기입
+        sprintf(buff, " %s파일의 녹화를 시작합니다.::\n", filename_BUF);
+        WRByte = write(fd, buff, strlen(buff));
+    }
+    if(*input == 7)
+    {
+        sprintf(buff, "%s ERROR Can't write video.\n", BUF);
+    }
+    if(*input == 8)
+    {
+        sprintf(buff, "%s EEROR black frame grabbed\n", BUF);
+    }
+    if(*input == 9)
+    {
+        sprintf(buff, "%s Stop Video Recording ##########\n", BUF);
+    }
+
+    close(fd);
+    return (void*)0;
+    
+}
+
+
+// 메인 함수 부분 //
 int main(int, char **)
 {
     // STEP 1. VideoCapture("경로") 동영상 파일을 가져올때
     //         VideoCapture(0) 카메라만 가져올때
     VideoCapture cap;
     VideoWriter writer;
+
+    //쓰레드 3개 생성
+    pthread_t p_thread[3];
+    int status;
+    int err;
+    //로그 쓰레드 조건
+    int TLOG_blackBox_ON = 1,TLOG_ERROR_openCamera = 2 ,TLOG_makeFolder= 3,
+    TLOG_delteFolder = 4 , TLOG_EEROR_DelteFolder = 5, TLOG_recoding_ON = 6, 
+    TLOG_EEROR_writeVideo = 7, TLOG_EEROR_frameGrabbed = 8, TLOG_stopRecoding = 9;
 
     //종료플래그와 1800타이머 계산변수
     int exitFlag = 0;
@@ -193,23 +270,16 @@ int main(int, char **)
 
     //파일처리변수
     char buff[100];
-    int WRByte;
-    int fd;
 
     // 로그파일을 기록하기위해 파일열기
-    fd = open("/home/pi/blackBox/blackBoxlog.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    getTime(LOG_TIME);
-    sprintf(buff, "%s blackBox log write on... #########\n", BUF);
-    WRByte = write(fd, buff, strlen(buff));
+    pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_blackBox_ON);
 
     // STEP 1. cap.open() 카메라 장치열기
     cap.open(deviceID, apiID);
     if (!cap.isOpened())
     {
         printf("ERROR! Unable to open camera.\n");
-        getTime(LOG_TIME);
-        sprintf(buff, "%s ERROR! Unable to open camera.\n", BUF);
-        WRByte = write(fd, buff, strlen(buff));
+         pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_ERROR_openCamera);
         return -1;
     }
 
@@ -227,7 +297,7 @@ int main(int, char **)
     // STEP 3. 녹화시작
     while (1)
     {
-        // 폴더생성. 이름은 전역변수 dirname[30], FolderFrame 108000(1시간)
+        // 폴더생성.삭제 생성시이름은 전역변수 dirname[30], FolderFrame 108000(1시간)
         if (countframe == FolderFrame )
         {
             //용량확인 함수
@@ -235,42 +305,39 @@ int main(int, char **)
             printf("현재남은 용량은 %.1f입니다.\n", Volume);
             if (Volume < Volume_LastMin)
             {
-                deleteFolder();
+                deleteFolder(); //delFolderName에 삭제된파일이름 long형으로 전달
+                if (delFolderName){
+                    // 폴더삭제성공 로그파일 기록
+                     pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_delteFolder);
+                }
+                else if (delFolderName==-2)
+                {   // 폴더삭제실패 로그파일 기록
+                    pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_EEROR_DelteFolder);
+                }
             }
             //로그파일에 시간기록, 폴더생성 기록
-            getTime(LOG_TIME);
-            sprintf(buff, "%s", BUF);
-            WRByte = write(fd, buff, strlen(buff));
-
+        
             makeFolderNow(); // 폴더생성후 이름을 dirname저장
-
-            sprintf(buff, " %s 폴더가 생성되었습니다.\n", dirname);
-            WRByte = write(fd, buff, strlen(buff));
+            pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_makeFolder);
 
             countframe = 0; // 처음생성후 0초기화, 녹화시작
         }
-        // 로그파일에 시간기록 파일명기록
-        getTime(LOG_TIME);
-        sprintf(buff, "%s", BUF);
-        WRByte = write(fd, buff, strlen(buff));
-
-        getTime(FILENAME_TIME);
-        sprintf(buff, " %s파일의 녹화를 시작합니다.\n", BUF);
-        WRByte = write(fd, buff, strlen(buff));
-        printf("%s파일의 녹화를 시작합니다.\n",BUF);
+        // 영상 촬영 시작부분 
+        // 로그파일에 시간기록 파일명기록 
+        pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_recoding_ON);
         // 시간정보 읽어와 buff에 파일명을 생성 210712xxxxxx.avi
         // STEP 2. writer.open(저장하고자하는 경로+파일명,
         // 압축코덱지정 fourcc('x','x','x','x'), FPS, Size(가로,세로),
         // True == isColor? )
-        sprintf(buff, "%s/%s",dirname,BUF); //buff=파일경로,시간.avi 합침
+        getTime(FILENAME_TIME);
+        printf("%s 파일의 녹화를 시작합니다.\n",filename_BUF);
+        sprintf(buff, "%s/%s",dirname,filename_BUF); //buff=파일경로,시간.avi 합침
         writer.open(buff, VideoWriter::fourcc('D', 'I', 'V', 'X'),
                     videoFPS, Size(videoWidth, videoHeight), true);
         if (!writer.isOpened())
         {
             printf("Can't write video\n");
-            getTime(LOG_TIME);
-            sprintf(buff, "%s Can't write video.\n", BUF);
-            WRByte = write(fd, buff, strlen(buff));
+            pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_EEROR_writeVideo);
             return -1;
         }
         // 창만들기
@@ -286,9 +353,7 @@ int main(int, char **)
             if (frame.empty())
             {
                 perror("EEROR black frame grabbed\n");
-                getTime(LOG_TIME);
-                sprintf(buff, "%s EEROR black frame grabbed\n", BUF);
-                WRByte = write(fd, buff, strlen(buff));
+                pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_EEROR_frameGrabbed);
                 break;
             }
 
@@ -301,23 +366,24 @@ int main(int, char **)
             if(waitKey(3)==27)
             {
                 printf("Stop Video Recording\n");
-                getTime(LOG_TIME);
-                sprintf(buff, "%s Stop Video Recording ##########\n", BUF);
-                WRByte = write(fd, buff, strlen(buff));
+                pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)&TLOG_stopRecoding);
 
                 exitFlag = 1;
                 break;
             }
         }
+        //1분 영상 하나 끝
         writer.release();
         if (exitFlag == 1)
             break;
     }
-
+    // 쓰레드 반환
+    pthread_join(p_thread[0], (void **) &status);
+    
+    // 카메라 off
     cap.release();
     destroyWindow(VIDEO_WINDOW_NAME);
 
-    close(fd);
     return 0;
 }
 
@@ -585,6 +651,10 @@ int main(int, char **)
             if (Volume < Volume_LastMin)
             {
                 deleteFolder();
+                // 폴더삭제성공 로그파일 기록
+                getTime(LOG_TIME);
+                sprintf(buff, "%s 용량이 %s가 남아 %ld를 삭제합니다.\n", BUF,Volume, delFolderName);
+                WRByte = write(fd, buff, strlen(buff));
             }
             //로그파일에 시간기록, 폴더생성 기록
             getTime(LOG_TIME);
