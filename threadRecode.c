@@ -71,7 +71,6 @@ void* log_t_fuc(void *data)
 
         getTime(FILENAME_TIME); // 파일명.avi 기입
         sprintf(buff, " %s파일의 녹화를 시작합니다.\n", BUF);
-        WRByte = write(fd, buff, strlen(buff));
     }
     if(*input == 7)
     {
