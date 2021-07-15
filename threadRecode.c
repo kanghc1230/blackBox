@@ -1,16 +1,12 @@
 
 #include <stdio.h>
 #include <string.h>
-
-#include <fcntl.h>  //file
+#include <fcntl.h> //file
 #include <unistd.h> 
-
-#include <dirent.h>
-#include <sys/stat.h> //mkdir
-
+#include <dirent.h> //mkdir
+#include <sys/stat.h> 
 #include <sys/vfs.h>  //getRatio().. statfs
 #include <sys/types.h>
-
 #include <pthread.h> //thread
 
 #define FILENAME_TIME 0
