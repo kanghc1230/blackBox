@@ -1,0 +1,1 @@
+g++ -o videoRecode_Task videoRecode_Task.cpp $(pkg-config opencv4 --libs --cflags) -lpthread
