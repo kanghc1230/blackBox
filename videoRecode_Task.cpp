@@ -52,7 +52,6 @@ void* log_t_fuc(void *data)
     char buff[100]; // 파일에 쓸 버퍼
     int fd; // 파일열기
     int WRByte;
-    log_print_BUF = 0; //로그버퍼 초기화
     // O_APPEND 파일이 있으면 아래로 계속 문장추가
     fd = open("/home/pi/blackBox/blackBoxlog.log", O_WRONLY | O_CREAT | O_APPEND, 0644); 
     while(1)
@@ -105,8 +104,8 @@ void* log_t_fuc(void *data)
             }
             if (log_print_BUF == 99)
             {
-                close(fd);
-                break;
+                close(fd); // 99로 파일닫기
+                return (void*)0;
             }
             WRByte = write(fd, buff, strlen(buff)); // 파일에 쓰기
             log_print_BUF = 0; // 출력후 초기화
@@ -122,23 +121,26 @@ void* log_t_fuc(void *data)
         usleep(10000); //0.1sec
     }
 
-    close(fd); // 99로 break빠져나오면 파일닫기
-    return (void*)0;
+    
+    
 }
 
 //폴더처리 쓰레드 (루프)
 void *folder_t_fuc(void * data)
 {   
-    float Volume;
-    float Volume_LastMin = 10;
+    // 용량처리 변수
+    float Volume; // 저장 남은용량 비율%저장할변수
+    float Volume_LastMin = 10; // ex:남은저장공간 10%미만이면 폴더삭제할것
+
     char buff[100]; //전폴더이름
     
-    //용량확인 함수
+    // 용량확인 함수
     Volume = getRatio();
     printf("현재남은 용량은 %.1f입니다.\n", Volume); 
-    makeFolderNow(); //처음 폴더생성
-    log_print_BUF = 3;
-    sprintf(buff, "%s",BUF); // 처음 buff에 전 폴더이름 저장
+    // 처음 폴더생성
+    makeFolderNow();  
+    log_print_BUF = 3; // 폴더생성 로그기록
+    sprintf(buff, "%s",BUF); // buff에 전 폴더이름 저장
     
     //시간읽어들여서 폴더이름변경,확인
     while (1)
@@ -167,14 +169,16 @@ void *folder_t_fuc(void * data)
             log_print_BUF = 3;
         }
         sprintf(buff, "%s",BUF); // buff에 BUF덮어쓰기
-        usleep(500000); //0.5sec;  
 
         if (log_print_BUF == 99)
         {
                 return (void*)0;
         }
+
+        usleep(500000); //0.5sec;  
     }
 }
+// 쓰레드 처리 끝 //
 
 // 메인 함수 부분 //
 int main(int, char **)
@@ -198,10 +202,6 @@ int main(int, char **)
     int MaxFrame = 1800; // 1분 타이머
     int countframe = 0;  // 30프레임에서 1분(1800프레임)을 체크할 변수
 
-    //용량처리 변수
-    float Volume; //저장 남은용량 비율%저장할변수
-    float Volume_LastMin = 10; //최저 저장공간 10%미만이면 폴더삭제할것
-
     // 카메라 id변수
     int deviceID = 0;
     int apiID = cv::CAP_V4L2;
@@ -213,8 +213,9 @@ int main(int, char **)
 
     // 로그파일을 기록하기위해 파일열기
     err = pthread_create(&p_thread[0], NULL, log_t_fuc, (void *)0);
-    sleep(1);
+    sleep(1); // 쓰레드 실행대기
 
+    // 촬영시작 로그기록
     log_print_BUF = 1;
     // STEP 1. cap.open() 카메라 장치열기
     cap.open(deviceID, apiID);
@@ -236,9 +237,9 @@ int main(int, char **)
     printf("videoFPS = %f\n", videoFPS);
     printf("video width=%d, height=%d\n", videoWidth, videoHeight);
 
-    //폴더생성,삭제 쓰레드, dirname값변경 
+    //폴더생성,삭제 쓰레드 작동, dirname값변경 
     err = pthread_create(&p_thread[1], NULL, folder_t_fuc, (void*)0);
-    sleep(1);
+    sleep(1); // 쓰레드 실행대기
 
     // STEP 3. 녹화시작
     while (1)
@@ -303,7 +304,7 @@ int main(int, char **)
     }
     // 로그 쓰레드, 폴더 쓰레드 종료 콜
     log_print_BUF = 99;
-    sleep(1);
+    sleep(1); // 쓰레드 종료대기
 
     // 쓰레드 반환
     pthread_join(p_thread[0], (void **) &status);
@@ -316,6 +317,8 @@ int main(int, char **)
     return 0;
 }
 
+
+// 함수부분 //
 // 시간 잡아와서 포맷변환
 void getTime(int return_Type) //0file 1 folder 2log
 {
